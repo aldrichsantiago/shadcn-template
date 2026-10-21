@@ -1,5 +1,6 @@
 import { CircleCheckIcon, CircleSlashIcon, ClockIcon } from "lucide-react"
 import type {
+  DataTableDateFilter,
   DataTableFilter,
   DataTableFilterOption,
   ListQuerySchema,
@@ -87,6 +88,7 @@ export const USER_QUERY_SCHEMA: ListQuerySchema<UserSortField> = {
     role: allowedValues("role"),
     team: allowedValues("team"),
   },
+  dateRangeKeys: ["createdAt"],
   // Newest first: the most useful default for an admin table, and a stable tie
   // breaker for the name sort.
   defaultSort: [{ field: "createdAt", direction: "desc" }],
@@ -103,3 +105,7 @@ export const USER_DATATABLE_FILTERS: readonly DataTableFilter[] = (
   label: USER_FILTERS[key].label,
   options: USER_FILTERS[key].options,
 }))
+
+export const USER_DATE_FILTERS: readonly DataTableDateFilter[] = [
+  { key: "createdAt", label: "Created" },
+]

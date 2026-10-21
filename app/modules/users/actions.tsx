@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react"
 import { useFetcher } from "react-router"
-import { MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import {
+  Loader2Icon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  Trash2Icon,
+} from "lucide-react"
+import { toast } from "sonner"
+import { useRowSelectionContext } from "~/components/data-table/row-selection-context"
 import type { RowSelection } from "~/components/data-table/use-row-selection"
 import { Button } from "~/components/ui/button"
 import {
@@ -28,7 +35,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select"
-import { USER_ROLES, USER_STATUSES, type User } from "./types"
+import { useCan } from "~/lib/auth/use-current-user"
+import { USER_ROLES, USER_STATUSES, USER_TEAMS, type User } from "./types"
 
 /**
  * Contract of the `users` route action. The action annotates its return type with
@@ -36,6 +44,7 @@ import { USER_ROLES, USER_STATUSES, type User } from "./types"
  */
 export type UserActionData = {
   ok?: boolean
+  created?: boolean
   deleted?: number
   errors?: Record<string, string>
 }
@@ -48,19 +57,34 @@ function readActionData(fetcher: ReturnType<typeof useFetcher>) {
 export function UserRowActions({ user }: { user: User }) {
   const fetcher = useFetcher()
   const data = readActionData(fetcher)
+  const dropFromSelection = useRowSelectionContext()?.remove
+  const canEdit = useCan("user:edit")
+  const canDelete = useCan("user:delete")
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
-  const remove = () => {
+  // A deleted row can still be part of a cross-page selection; drop its id once
+  // the server confirms the delete, or the action bar keeps counting it.
+  useEffect(() => {
+    if (data?.deleted === undefined) return
+    dropFromSelection?.([user.id])
+    toast.success(`Deleted ${user.name}`)
+  }, [data, dropFromSelection, user.id, user.name])
+
+  useEffect(() => {
+    if (data?.errors?.form) toast.error(data.errors.form)
+  }, [data])
+
+  const deleteUser = () => {
     const formData = new FormData()
     formData.set("intent", "delete")
     formData.append("ids", user.id)
     fetcher.submit(formData, { method: "post" })
     setConfirming(false)
   }
-  // ponytail: if this row is part of a multi-selection, its id lingers in the
-  // selection until cleared, so the action bar can overcount. Lift selection into
-  // a context the row actions can reach if that ever matters.
+
+  // Nothing to open: the trigger would be an empty menu.
+  if (!canEdit && !canDelete) return null
 
   return (
     <>
@@ -76,26 +100,27 @@ export function UserRowActions({ user }: { user: User }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setEditing(true)}>
-            <PencilIcon />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={() => setConfirming(true)}
-          >
-            <Trash2Icon />
-            Delete
-          </DropdownMenuItem>
+          {canEdit && (
+            <DropdownMenuItem onSelect={() => setEditing(true)}>
+              <PencilIcon />
+              Edit
+            </DropdownMenuItem>
+          )}
+          {canDelete && (
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setConfirming(true)}
+            >
+              <Trash2Icon />
+              Delete
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <EditUserDialog
-        user={user}
-        open={editing}
-        onOpenChange={setEditing}
-        errors={editing ? data?.errors : undefined}
-      />
+      {canEdit && (
+        <EditUserDialog user={user} open={editing} onOpenChange={setEditing} />
+      )}
 
       <ConfirmDeleteDialog
         open={confirming}
@@ -103,7 +128,7 @@ export function UserRowActions({ user }: { user: User }) {
         title={`Delete ${user.name}?`}
         description="This removes the user from the workspace and cannot be undone."
         pending={fetcher.state !== "idle"}
-        onConfirm={remove}
+        onConfirm={deleteUser}
       />
     </>
   )
@@ -119,8 +144,16 @@ export function UserBulkActions({ selection }: { selection: RowSelection }) {
   // Drop the selection once the server confirms the rows are gone, otherwise the
   // bar would keep counting deleted users.
   useEffect(() => {
-    if (data?.deleted !== undefined) clear()
+    if (data?.deleted === undefined) return
+    clear()
+    toast.success(
+      `${data.deleted} ${data.deleted === 1 ? "user" : "users"} deleted`
+    )
   }, [data, clear])
+
+  useEffect(() => {
+    if (data?.errors?.form) toast.error(data.errors.form)
+  }, [data])
 
   const removeSelected = () => {
     const formData = new FormData()
@@ -154,23 +187,158 @@ export function UserBulkActions({ selection }: { selection: RowSelection }) {
   )
 }
 
+/** Create dialog rendered by the route; the datatable only owns the trigger. */
+export function UserCreateDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const fetcher = useFetcher()
+  const data = readActionData(fetcher)
+  const errors = data?.errors
+  const pending = fetcher.state !== "idle"
+
+  useEffect(() => {
+    if (data?.created) {
+      toast.success("User created")
+      onOpenChange(false)
+      return
+    }
+    if (data?.errors?.form) toast.error(data.errors.form)
+  }, [data, onOpenChange])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Add user</DialogTitle>
+          <DialogDescription>
+            The new user can sign in once they accept the invitation.
+          </DialogDescription>
+        </DialogHeader>
+
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="create" />
+
+          <FieldGroup>
+            <Field>
+              <Label htmlFor="user-create-name">Name</Label>
+              <Input
+                id="user-create-name"
+                name="name"
+                autoComplete="off"
+                aria-invalid={errors?.name ? true : undefined}
+              />
+              <FieldError>{errors?.name}</FieldError>
+            </Field>
+            <Field>
+              <Label htmlFor="user-create-email">Email</Label>
+              <Input
+                id="user-create-email"
+                name="email"
+                type="email"
+                autoComplete="off"
+                aria-invalid={errors?.email ? true : undefined}
+              />
+              <FieldError>{errors?.email}</FieldError>
+            </Field>
+            <Field>
+              <Label htmlFor="user-create-role">Role</Label>
+              <Select name="role" defaultValue="member">
+                <SelectTrigger id="user-create-role" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USER_ROLES.map((role) => (
+                    <SelectItem key={role} value={role} className="capitalize">
+                      {role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError>{errors?.role}</FieldError>
+            </Field>
+            <Field>
+              <Label htmlFor="user-create-status">Status</Label>
+              <Select name="status" defaultValue="invited">
+                <SelectTrigger id="user-create-status" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USER_STATUSES.map((status) => (
+                    <SelectItem
+                      key={status}
+                      value={status}
+                      className="capitalize"
+                    >
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError>{errors?.status}</FieldError>
+            </Field>
+            <Field>
+              <Label htmlFor="user-create-team">Team</Label>
+              <Select name="team" defaultValue={USER_TEAMS[0]}>
+                <SelectTrigger id="user-create-team" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USER_TEAMS.map((team) => (
+                    <SelectItem key={team} value={team}>
+                      {team}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError>{errors?.team}</FieldError>
+            </Field>
+          </FieldGroup>
+
+          <FieldError>{errors?.form}</FieldError>
+
+          <DialogFooter className="mt-4">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={pending}>
+              {pending && <Loader2Icon className="size-4 animate-spin" />}
+              {pending ? "Creating…" : "Create user"}
+            </Button>
+          </DialogFooter>
+        </fetcher.Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function EditUserDialog({
   user,
   open,
   onOpenChange,
-  errors,
 }: {
   user: User
   open: boolean
   onOpenChange: (open: boolean) => void
-  errors?: Record<string, string>
 }) {
   // Its own fetcher: edit errors and pending state stay out of the delete flow.
   const fetcher = useFetcher()
   const data = readActionData(fetcher)
+  const errors = data?.errors
+  const pending = fetcher.state !== "idle"
 
   useEffect(() => {
-    if (data?.ok) onOpenChange(false)
+    if (data?.ok) {
+      toast.success("Changes saved")
+      onOpenChange(false)
+      return
+    }
+    if (data?.errors?.form) toast.error(data.errors.form)
   }, [data, onOpenChange])
 
   const fieldId = (name: string) => `user-${user.id}-${name}`
@@ -258,8 +426,9 @@ function EditUserDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={fetcher.state !== "idle"}>
-              Save changes
+            <Button type="submit" disabled={pending}>
+              {pending && <Loader2Icon className="size-4 animate-spin" />}
+              {pending ? "Saving…" : "Save changes"}
             </Button>
           </DialogFooter>
         </fetcher.Form>
@@ -302,7 +471,8 @@ function ConfirmDeleteDialog({
             onClick={onConfirm}
             disabled={pending}
           >
-            Delete
+            {pending && <Loader2Icon className="size-4 animate-spin" />}
+            {pending ? "Deleting…" : "Delete"}
           </Button>
         </DialogFooter>
       </DialogContent>

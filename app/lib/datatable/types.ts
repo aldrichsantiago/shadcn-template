@@ -8,9 +8,15 @@ export type SortParam<TField extends string = string> = {
   direction: SortDirection
 }
 
+/** Inclusive day bounds (`YYYY-MM-DD`). Either side may be open. */
+export type DateRange = { from?: string; to?: string }
+
 /**
  * Fully validated, normalized list state. This is what the server queries with
  * and what the client renders controls from — never raw user input.
+ *
+ * The datatable keeps this in React state (not the address bar) and sends it to
+ * the route loader as a query string via `fetcher.load`, so the URL stays clean.
  */
 export type ListParams<TField extends string = string> = {
   page: number
@@ -19,6 +25,8 @@ export type ListParams<TField extends string = string> = {
   sort: SortParam<TField>[]
   /** filter key -> selected values. A missing/empty entry means "no constraint". */
   filters: Record<string, string[]>
+  /** date-range key -> inclusive day bounds. A missing entry means "no constraint". */
+  dateRanges: Record<string, DateRange>
 }
 
 /** One page of results plus the counters needed to render pagination. */
@@ -39,6 +47,8 @@ export type ListQuerySchema<TField extends string = string> = {
   sortableFields: readonly TField[]
   /** Filter key -> the exact values a client is allowed to filter by. */
   filterValues: Readonly<Record<string, readonly string[]>>
+  /** Date-range filter keys the client may send, e.g. `["createdAt"]`. */
+  dateRangeKeys?: readonly string[]
   /** Applied when no valid `sort` param is present. */
   defaultSort: readonly SortParam<TField>[]
   defaultPerPage: number
@@ -74,4 +84,10 @@ export type DataTableFilter = {
   key: string
   label: string
   options: readonly DataTableFilterOption[]
+}
+
+/** A date-range filter rendered in the toolbar. `key` must exist in the schema. */
+export type DataTableDateFilter = {
+  key: string
+  label: string
 }

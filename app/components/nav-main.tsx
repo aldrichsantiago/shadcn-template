@@ -17,10 +17,14 @@ import {
   SidebarMenuSubItem,
 } from "~/components/ui/sidebar"
 import { ChevronRightIcon } from "lucide-react"
+import { can, type Permission } from "~/lib/auth/permissions"
+import { useCurrentUser } from "~/lib/auth/use-current-user"
 
 export type NavSubItem = {
   title: string
   url: string
+  /** Hidden unless the current user holds this permission. */
+  permission?: Permission
 }
 
 export type NavItem = {
@@ -30,6 +34,8 @@ export type NavItem = {
   icon?: React.ReactNode
   /** Whether the section starts expanded. Independent from the active route. */
   defaultOpen?: boolean
+  /** Hidden unless the current user holds this permission. */
+  permission?: Permission
   items?: NavSubItem[]
 }
 
@@ -101,11 +107,28 @@ function NavSection({ item }: { item: NavItem }) {
 }
 
 export function NavMain({ items }: { items: NavItem[] }) {
+  const user = useCurrentUser()
+
+  // Filter rather than disable: a link the user cannot open is noise.
+  const visibleItems = items.flatMap((item) => {
+    if (item.permission && !can(user.permissions, item.permission)) return []
+
+    const subItems = item.items?.filter(
+      (subItem) =>
+        !subItem.permission || can(user.permissions, subItem.permission)
+    )
+
+    // A section that only opens children disappears when all children are hidden.
+    if (item.url === "#" && subItems && subItems.length === 0) return []
+
+    return [{ ...item, items: subItems }]
+  })
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Operations</SidebarGroupLabel>
       <SidebarMenu>
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <NavSection key={item.title} item={item} />
         ))}
       </SidebarMenu>

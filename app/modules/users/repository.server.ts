@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto"
 import {
   queryRows,
+  type DateAccessors,
   type FilterPredicates,
   type SearchAccessors,
   type SortAccessors,
@@ -7,7 +9,13 @@ import {
 import type { ListParams, Page } from "~/lib/datatable/types"
 import { USERS } from "./data.server"
 import type { UserFilterKey } from "./query"
-import type { User, UserSortField } from "./types"
+import type {
+  User,
+  UserRole,
+  UserSortField,
+  UserStatus,
+  UserTeam,
+} from "./types"
 
 /**
  * The seam a real database slots into. Keep every accessor/predicate below in sync
@@ -16,12 +24,16 @@ import type { User, UserSortField } from "./types"
 /** Editable fields. Team/timestamps are out of scope of the edit form. */
 export type UserPatch = Pick<User, "name" | "email" | "role" | "status">
 
+/** Fields the create dialog collects; the rest are generated server-side. */
+export type NewUser = UserPatch & Pick<User, "team">
+
 export type UserRepository = {
   list(params: ListParams<UserSortField>): Promise<Page<User>>
   /** Returns how many rows were actually removed. */
   deleteUsers(ids: readonly string[]): Promise<number>
   /** Returns false when the id no longer exists. */
   updateUser(id: string, patch: UserPatch): Promise<boolean>
+  createUser(input: NewUser): Promise<User>
 }
 
 const SORT_ACCESSORS: SortAccessors<User> = {
@@ -44,6 +56,10 @@ const SEARCH_ACCESSORS: SearchAccessors<User> = [
   (user) => user.status,
 ]
 
+const DATE_ACCESSORS: DateAccessors<User> = {
+  createdAt: (user) => user.createdAt,
+}
+
 const FILTER_PREDICATES: FilterPredicates<User> = {
   status: (user, values) => values.includes(user.status),
   role: (user, values) => values.includes(user.role),
@@ -59,6 +75,7 @@ export const userRepository: UserRepository = {
       params,
       sortAccessors: SORT_ACCESSORS,
       filterPredicates: FILTER_PREDICATES,
+      dateAccessors: DATE_ACCESSORS,
       searchAccessors: SEARCH_ACCESSORS,
     })
   },
@@ -81,5 +98,17 @@ export const userRepository: UserRepository = {
 
     Object.assign(user, patch)
     return true
+  },
+
+  async createUser(input) {
+    const user: User = {
+      id: `usr_${randomUUID()}`,
+      ...input,
+      lastActiveAt: null,
+      createdAt: new Date().toISOString(),
+    }
+
+    USERS.unshift(user)
+    return user
   },
 }

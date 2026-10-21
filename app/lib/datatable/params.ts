@@ -1,14 +1,21 @@
-import type { ListParams, ListQuerySchema, SortParam } from "./types"
+import type { DateRange, ListParams, ListQuerySchema, SortParam } from "./types"
 
-/** Plain params owned by the datatable. Filters are namespaced `filter.<key>`. */
-export const DATATABLE_PARAM_KEYS = ["page", "per_page", "sort", "q"] as const
+/**
+ * Wire format shared by the client and the route loader. It is deliberately the
+ * same as the old URL format, but it now travels in a `fetcher.load` request
+ * rather than the address bar.
+ *
+ * Filters are namespaced `filter.<key>`, date ranges `range.<key>`.
+ */
 export const FILTER_PARAM_PREFIX = "filter."
+export const DATE_RANGE_PARAM_PREFIX = "range."
 
 const DEFAULT_MAX_SEARCH_LENGTH = 100
 const DEFAULT_MAX_FILTER_VALUES_PER_KEY = 25
 const DEFAULT_MAX_SORT_FIELDS = 3
 /** Guards against absurd `page` values being used to build huge offset queries. */
 const MAX_PAGE = 10_000
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 function readPositiveInt(raw: string | null): number | null {
   if (raw === null) return null
@@ -93,10 +100,43 @@ function parseFilters<TField extends string>(
   return filters
 }
 
+function isIsoDay(value: string): boolean {
+  return ISO_DAY.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+}
+
+/** `2025-01-01..2025-03-31`, either side optional. Invalid input is dropped. */
+function parseDateRange(raw: string): DateRange | null {
+  const [fromRaw = "", toRaw = ""] = raw.split("..")
+  const from = isIsoDay(fromRaw) ? fromRaw : undefined
+  const to = isIsoDay(toRaw) ? toRaw : undefined
+  if (!from && !to) return null
+  // An inverted range would silently return nothing; treat it as open instead.
+  if (from && to && from > to) return { from: to, to: from }
+  return { from, to }
+}
+
+function parseDateRanges<TField extends string>(
+  searchParams: URLSearchParams,
+  schema: ListQuerySchema<TField>
+): Record<string, DateRange> {
+  const allowed = new Set(schema.dateRangeKeys ?? [])
+  const ranges: Record<string, DateRange> = {}
+
+  for (const [key, rawValue] of searchParams.entries()) {
+    if (!key.startsWith(DATE_RANGE_PARAM_PREFIX)) continue
+    const rangeKey = key.slice(DATE_RANGE_PARAM_PREFIX.length)
+    if (!allowed.has(rangeKey)) continue
+    const range = parseDateRange(rawValue)
+    if (range) ranges[rangeKey] = range
+  }
+
+  return ranges
+}
+
 /**
  * Turns untrusted search params into normalized list params. Unknown sort fields,
  * unknown filter keys/values, and out-of-range page sizes are dropped rather than
- * rejected, so a hand-edited URL degrades to a sane query instead of erroring.
+ * rejected, so a stale request degrades to a sane query instead of erroring.
  */
 export function parseListParams<TField extends string>(
   searchParams: URLSearchParams,
@@ -116,6 +156,7 @@ export function parseListParams<TField extends string>(
       .slice(0, schema.maxSearchLength ?? DEFAULT_MAX_SEARCH_LENGTH),
     sort: parseSort(searchParams.get("sort"), schema),
     filters: parseFilters(searchParams, schema),
+    dateRanges: parseDateRanges(searchParams, schema),
   }
 }
 
@@ -133,21 +174,14 @@ function sortsAreEqual<TField extends string>(
 }
 
 /**
- * Serializes back to search params, preserving any params the datatable does not
- * own (e.g. `tab=active`) so the URL stays the single source of truth.
- * Defaults are omitted to keep canonical URLs clean and redirect-free.
+ * Serializes list state for the loader request. Defaults are omitted so the
+ * request matches the shape of the response and stays as short as possible.
  */
 export function serializeListParams<TField extends string>(
   params: ListParams<TField>,
-  schema: ListQuerySchema<TField>,
-  base?: URLSearchParams
+  schema: ListQuerySchema<TField>
 ): URLSearchParams {
-  const search = new URLSearchParams(base)
-
-  for (const key of DATATABLE_PARAM_KEYS) search.delete(key)
-  for (const key of [...search.keys()]) {
-    if (key.startsWith(FILTER_PARAM_PREFIX)) search.delete(key)
-  }
+  const search = new URLSearchParams()
 
   if (params.page > 1) search.set("page", String(params.page))
   if (params.perPage !== resolveDefaultPerPage(schema)) {
@@ -170,34 +204,13 @@ export function serializeListParams<TField extends string>(
       search.set(`${FILTER_PARAM_PREFIX}${key}`, values.join(","))
   }
 
+  for (const [key, range] of Object.entries(params.dateRanges)) {
+    if (!range.from && !range.to) continue
+    search.set(
+      `${DATE_RANGE_PARAM_PREFIX}${key}`,
+      `${range.from ?? ""}..${range.to ?? ""}`
+    )
+  }
+
   return search
-}
-
-/**
- * Order-insensitive fingerprint of only the params the datatable owns. Used by the
- * loader to decide whether a redirect to the canonical URL is needed — comparing
- * whole query strings would produce false positives from param ordering.
- */
-export function datatableParamsFingerprint<TField extends string>(
-  searchParams: URLSearchParams,
-  schema: ListQuerySchema<TField>
-): string {
-  const parts: string[] = []
-
-  for (const key of DATATABLE_PARAM_KEYS) {
-    for (const value of searchParams.getAll(key)) parts.push(`${key}=${value}`)
-  }
-
-  for (const key of Object.keys(schema.filterValues)) {
-    const values = searchParams
-      .getAll(`${FILTER_PARAM_PREFIX}${key}`)
-      .flatMap((value) => value.split(","))
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .sort()
-    if (values.length > 0)
-      parts.push(`${FILTER_PARAM_PREFIX}${key}=${values.join(",")}`)
-  }
-
-  return parts.join("&")
 }

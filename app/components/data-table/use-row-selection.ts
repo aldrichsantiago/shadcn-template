@@ -8,6 +8,8 @@ export type RowSelection = {
   toggleRow: (id: string) => void
   /** Adds every row on the current page, or removes them if all are selected. */
   toggleAllOnPage: () => void
+  /** Drops ids from the selection, e.g. after those rows were deleted. */
+  remove: (ids: Iterable<string>) => void
   clear: () => void
   isAllOnPageSelected: boolean
   isSomeOnPageSelected: boolean
@@ -59,6 +61,19 @@ export function useRowSelection<TRow>({
     })
   }, [pageIds])
 
+  const remove = useCallback((ids: Iterable<string>) => {
+    setSelectedIds((current) => {
+      let next: Set<string> | null = null
+      for (const id of ids) {
+        if (!current.has(id)) continue
+        next ??= new Set(current)
+        next.delete(id)
+      }
+      // Same Set when nothing was selected, so consumers do not re-render.
+      return next ?? current
+    })
+  }, [])
+
   const clear = useCallback(() => {
     setSelectedIds((current) => (current.size === 0 ? current : new Set()))
   }, [])
@@ -79,6 +94,7 @@ export function useRowSelection<TRow>({
     isSelected,
     toggleRow,
     toggleAllOnPage,
+    remove,
     clear,
     isAllOnPageSelected,
     isSomeOnPageSelected,

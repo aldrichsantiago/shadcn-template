@@ -1,21 +1,9 @@
 import { Avatar, AvatarFallback } from "~/components/ui/avatar"
 import { Badge } from "~/components/ui/badge"
 import type { DataTableColumn } from "~/lib/datatable/types"
+import { formatDate } from "~/lib/format"
 import { UserRowActions } from "./actions"
 import type { User, UserSortField, UserStatus } from "./types"
-
-// Fixed locale + timeZone so the SSR markup and the client render match exactly.
-// A relative format ("2 days ago") would desync on hydration by design.
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  timeZone: "UTC",
-})
-
-function formatDate(isoDate: string | null): string {
-  return isoDate ? DATE_FORMATTER.format(new Date(isoDate)) : "Never"
-}
 
 function initials(name: string): string {
   return name

@@ -8,7 +8,15 @@ import {
 } from "react-router"
 
 import type { Route } from "./+types/root"
+import { Toaster } from "~/components/ui/sonner"
+import { getCurrentUser } from "~/lib/auth/session.server"
 import "./app.css"
+
+export async function loader({ request }: Route.LoaderArgs) {
+  // Permissions are read once here so sidebar, tables and dialogs all gate on the
+  // same snapshot instead of each checking its own role.
+  return { currentUser: getCurrentUser(request) }
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,6 +29,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        <Toaster />
         <ScrollRestoration />
         <Scripts />
       </body>

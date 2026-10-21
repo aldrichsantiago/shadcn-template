@@ -2,10 +2,11 @@
 
 import * as React from "react"
 
-import { NavMain } from "~/components/nav-main"
+import { NavMain, type NavItem } from "~/components/nav-main"
 import { NavProjects } from "~/components/nav-projects"
 import { NavUser } from "~/components/nav-user"
 import { TeamSwitcher } from "~/components/team-switcher"
+import { useCurrentUser } from "~/lib/auth/use-current-user"
 import {
   Sidebar,
   SidebarContent,
@@ -27,13 +28,15 @@ import {
   SettingsIcon,
 } from "lucide-react"
 
+/** Annotated so permission strings are checked against the `Permission` union. */
+type SidebarData = {
+  navMain: NavItem[]
+  teams: React.ComponentProps<typeof TeamSwitcher>["teams"]
+  projects: React.ComponentProps<typeof NavProjects>["projects"]
+}
+
 // This is sample data.
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
+const data: SidebarData = {
   teams: [
     {
       name: "Acme Inc.",
@@ -59,16 +62,16 @@ const data = {
       defaultOpen: true,
       items: [
         {
-          title: "History",
-          url: "#",
+          title: "Dashboard",
+          url: "/dashboard",
         },
         {
-          title: "Starred",
-          url: "#",
+          title: "Profile",
+          url: "/profile",
         },
         {
           title: "Settings",
-          url: "#",
+          url: "/settings",
         },
       ],
     },
@@ -118,24 +121,26 @@ const data = {
       title: "Settings",
       url: "#",
       icon: <SettingsIcon />,
-      // Only `/users` has a route so far; the rest are placeholders that will
-      // fall through to the router's error boundary until they are implemented.
       items: [
         {
           title: "Users",
           url: "/users",
+          permission: "user:view",
         },
         {
           title: "Roles",
           url: "/roles",
+          permission: "role:view",
         },
         {
           title: "Permissions",
           url: "/permissions",
+          permission: "permission:view",
         },
         {
           title: "Master Data",
           url: "/master-data",
+          permission: "master-data:view",
         },
       ],
     },
@@ -160,6 +165,8 @@ const data = {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const user = useCurrentUser()
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -170,7 +177,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         {/* <NavProjects projects={data.projects} /> */}
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={{ name: user.name, email: user.email }} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

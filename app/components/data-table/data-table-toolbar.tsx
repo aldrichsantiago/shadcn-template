@@ -2,7 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { SearchIcon, XIcon } from "lucide-react"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
-import type { DataTableFilter } from "~/lib/datatable/types"
+import type {
+  DataTableDateFilter,
+  DataTableFilter,
+} from "~/lib/datatable/types"
+import { DataTableDateRangeFilter } from "./data-table-date-range-filter"
 import { DataTableFacetedFilter } from "./data-table-faceted-filter"
 import type { DataTableController } from "./use-data-table"
 
@@ -69,6 +73,7 @@ function DataTableSearchInput({
 type DataTableToolbarProps<TField extends string> = {
   controller: DataTableController<TField>
   filters?: readonly DataTableFilter[]
+  dateFilters?: readonly DataTableDateFilter[]
   searchPlaceholder?: string
   /** Module-specific actions (e.g. a "Create user" button). */
   children?: ReactNode
@@ -77,12 +82,20 @@ type DataTableToolbarProps<TField extends string> = {
 export function DataTableToolbar<TField extends string>({
   controller,
   filters = [],
+  dateFilters = [],
   searchPlaceholder = "Search…",
   children,
 }: DataTableToolbarProps<TField>) {
-  const { params, setSearch, toggleFilterValue, clearFilter, clearAllFilters } =
-    controller
-  const hasFilters = filters.length > 0
+  const {
+    params,
+    setSearch,
+    toggleFilterValue,
+    clearFilter,
+    setDateRange,
+    clearDateRange,
+    clearAllFilters,
+  } = controller
+  const hasFilters = filters.length > 0 || dateFilters.length > 0
 
   return (
     <div className="flex flex-col gap-2 p-3 lg:flex-row lg:items-center lg:justify-between">
@@ -103,6 +116,16 @@ export function DataTableToolbar<TField extends string>({
               onClear={() => clearFilter(filter.key)}
             />
           ))}
+
+        {dateFilters.map((filter) => (
+          <DataTableDateRangeFilter
+            key={filter.key}
+            filter={filter}
+            value={params.dateRanges[filter.key]}
+            onChange={(range) => setDateRange(filter.key, range)}
+            onClear={() => clearDateRange(filter.key)}
+          />
+        ))}
 
         {controller.activeFilterCount > 0 && (
           <Button
